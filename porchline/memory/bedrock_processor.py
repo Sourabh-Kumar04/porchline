@@ -123,7 +123,7 @@ class BedrockVisionProcessor:
                 "parcel_count": simulated_truth.get("parcel_count", 0),
                 "parcel_description": simulated_truth.get("parcel_description", ""),
                 "placement": simulated_truth.get("placement", "Porch floor near mat"),
-                "summary": f"{simulated_truth.get('visitor_type', 'Visitor').capitalize()} detected: {simulated_truth.get('action')}. {('Parcel present: ' + simulated_truth.get('parcel_description')) if simulated_truth.get('parcel_detected') else ''}".strip(),
+                "summary": f"{simulated_truth.get('visitor_type', 'Visitor').capitalize()} detected: {simulated_truth.get('action')}. {('Parcel present: ' + str(simulated_truth.get('parcel_description') or '')) if simulated_truth.get('parcel_detected') else ''}".strip(),
                 "confidence": 0.96,
                 "provider": "aws_bedrock_simulated",
                 "model": "anthropic.claude-3-5-sonnet-20240620-v1:0"

@@ -57,6 +57,27 @@ def generate_scene_image(
         draw.ellipse([140, 200, 190, 250], fill="#b45309")
         draw.polygon([(140, 200), (160, 170), (180, 200)], fill="#78350f")
         draw.text((180, 250), "PET", fill="#ffffff")
+    elif scenario_type == "theft_porch_pirate":
+        # Intruder figure rapidly grabbing package
+        draw.ellipse([210, 110, 280, 180], fill="#dc2626")
+        draw.rectangle([190, 180, 300, 290], fill="#991b1b")
+        draw.text((200, 210), "INTRUDER", fill="#ffffff")
+    elif scenario_type == "package_swap":
+        # Person swapping parcel
+        draw.ellipse([210, 110, 280, 180], fill="#b91c1c")
+        draw.rectangle([190, 180, 300, 290], fill="#7f1d1d")
+        draw.rectangle([290, 240, 360, 280], fill="#f8fafc", outline="#cbd5e1", width=2)
+        draw.text((205, 210), "SWAPPER", fill="#ffffff")
+    elif scenario_type == "tailgating_entry":
+        # Resident entering and stranger following closely
+        draw.ellipse([340, 100, 400, 160], fill="#10b981") # resident
+        draw.ellipse([250, 110, 310, 170], fill="#ef4444") # follower
+        draw.text((345, 180), "RESIDENT", fill="#ffffff")
+        draw.text((255, 190), "FOLLOWER", fill="#ffffff")
+    elif scenario_type == "benign_false_alarm":
+        # Gentle foliage/wind shadow on porch
+        draw.polygon([(80, 100), (160, 180), (110, 260)], fill="#334155")
+        draw.text((100, 200), "SHADOW", fill="#64748b")
     elif scenario_type == "late_night_lingering":
         # Shadowy figure late at night
         draw.rectangle([0, 0, width, height], fill="#090d16")

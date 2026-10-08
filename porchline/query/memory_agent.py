@@ -1,31 +1,36 @@
 """Natural-Language Memory Query Engine, Lingering Package Anomaly Detector, and Evening Digest Generator.
 
-Features:
-1. NL Query Engine: Answers questions like:
-   - "When did the courier come?"
-   - "Did Amazon drop off a package today?"
-   - "Did any animals or pets visit?"
-   - "Are there any packages still outside?"
-2. Lingering Package Anomaly Detection:
-   - Flag packages sitting on porch > 4 hours uncollected.
-3. Automated Evening Digest Generator:
-   - Compiles a daily briefing of front-door life for 6:00 PM / 8:00 PM.
+Powered by Porchline's 4 Cooperating Agents:
+- Perceiver: Multimodal VLM scene analysis
+- Memorian: Semantic consolidation & learned household routine baselines
+- Sentinel: Anomaly reasoning, causal narratives, and proactive action triggers
+- Chronicler: Evening digest synthesis, storytelling, and conversational Q&A
 """
 
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone, timedelta
-import re
+
 from porchline.memory.dynamo_store import DynamoDBEpisodicStore
+from porchline.agents.memorian import MemorianAgent, HouseholdRoutineProfile
+from porchline.agents.sentinel import SentinelAgent
+from porchline.agents.chronicler import ChroniclerAgent
+from porchline.agents.coordinator import PorchlineAgentCoordinator
+
 
 class PorchlineMemoryAgent:
+    """High-level episodic memory facade coordinating Memorian, Sentinel, and Chronicler."""
+
     def __init__(self, store: DynamoDBEpisodicStore):
         self.store = store
+        self.memorian = MemorianAgent(store)
+        self.sentinel = SentinelAgent(store, self.memorian)
+        self.chronicler = ChroniclerAgent(store, self.memorian, self.sentinel)
+        self.coordinator = PorchlineAgentCoordinator(store)
 
-    def detect_lingering_packages(self, threshold_hours: float = 4.0) -> List[Dict[str, Any]]:
+    def detect_lingering_packages(self, threshold_hours: float = 2.0) -> List[Dict[str, Any]]:
         """Identify packages delivered that remain on porch past the threshold."""
         events = self.store.get_timeline(limit=100)
-        # Sort ascending for timeline walkthrough
-        chronological = sorted(events, key=lambda x: x["created_at"])
+        chronological = sorted(events, key=lambda x: x.get("created_at", ""))
 
         deliveries = []
         for ev in chronological:
@@ -40,190 +45,73 @@ class PorchlineMemoryAgent:
             except Exception:
                 delivery_dt = now - timedelta(hours=5)
 
-            elapsed_hours = (now - delivery_dt).total_seconds() / 3600.0
+            elapsed_hours = max(0.0, (now - delivery_dt).total_seconds() / 3600.0)
 
-            # Check if a subsequent event indicates package pickup
-            picked_up = False
-            for ev in chronological:
-                if ev["created_at"] > d["created_at"] and "pickup" in ev.get("action", "").lower():
-                    picked_up = True
-                    break
+            # Check if picked up or stolen
+            subsequent = [e for e in chronological if e.get("created_at", "") > d.get("created_at", "")]
+            picked_up = any("pickup" in e.get("action", "").lower() or "retrieved" in e.get("action", "").lower() for e in subsequent)
 
             if not picked_up and elapsed_hours >= threshold_hours:
+                hours_lingering = round(elapsed_hours, 1)
+                carrier = d.get("uniform_carrier", "Unknown Carrier")
                 anomalies.append({
                     "type": "lingering_package",
-                    "severity": "high",
+                    "severity": "high" if elapsed_hours >= 4.0 else "moderate",
                     "delivery_event_id": d["event_id"],
-                    "carrier": d.get("uniform_carrier", "Unknown Carrier"),
+                    "carrier": carrier,
                     "delivered_at": d["created_at"],
-                    "hours_lingering": round(elapsed_hours, 1),
+                    "hours_lingering": hours_lingering,
                     "description": d.get("parcel_description", "Parcel on porch"),
                     "placement": d.get("placement", "Front porch mat"),
-                    "recommendation": f"Package has been outside for {round(elapsed_hours, 1)} hrs. Bring inside to avoid weather or porch piracy."
+                    "recommendation": f"Package has been outside for {hours_lingering} hrs. Bring inside to avoid weather or porch piracy.",
+                    "routine_reason": f"Deviates from normal household collection window (2.5h maximum baseline).",
+                    "proactive_actions": [
+                        {
+                            "action_id": "act_alexa_announce",
+                            "label": "Announce on Echo / Alexa",
+                            "action_type": "chime",
+                            "severity": "high",
+                            "description": "Broadcast porch reminder on Alexa smart speakers."
+                        },
+                        {
+                            "action_id": "act_push_notify",
+                            "label": "Send Urgent Mobile Ping",
+                            "action_type": "push",
+                            "severity": "high",
+                            "description": "Dispatch priority push alert with snapshot to phones."
+                        },
+                        {
+                            "action_id": "act_neighbor_stash",
+                            "label": "Ask Neighbor Sarah to Stash",
+                            "action_type": "sms",
+                            "severity": "moderate",
+                            "description": "One-tap text request to trusted neighbor Sarah."
+                        }
+                    ]
                 })
         return anomalies
 
     def generate_evening_digest(self) -> Dict[str, Any]:
-        """Generate automated end-of-day summary digest."""
-        events = self.store.get_timeline(limit=50)
-        now = datetime.now(timezone.utc)
-        date_str = now.strftime("%A, %B %d, %Y")
-
-        if not events:
-            return {
-                "date": date_str,
-                "headline": "Quiet Front Porch Today",
-                "summary": "No front door activity recorded today.",
-                "total_events": 0,
-                "deliveries": [],
-                "visitors": [],
-                "anomalies": [],
-                "active_packages_outside": 0
-            }
-
-        courier_events = [e for e in events if e.get("visitor_type") == "courier" or e.get("parcel_detected")]
-        visitor_events = [e for e in events if e.get("visitor_type") in ["neighbor", "resident", "unknown"] and e.get("event_type") == "ding"]
-        animal_events = [e for e in events if e.get("visitor_type") == "animal"]
-        lingering = self.detect_lingering_packages(threshold_hours=4.0)
-
-        headline_parts = []
-        if courier_events:
-            headline_parts.append(f"{len(courier_events)} Deliveries")
-        if visitor_events:
-            headline_parts.append(f"{len(visitor_events)} Doorbell Ring{'s' if len(visitor_events) > 1 else ''}")
-        if lingering:
-            headline_parts.append(f"⚠️ {len(lingering)} Uncollected Parcel Alert")
-
-        headline = " · ".join(headline_parts) if headline_parts else "Routine Front Porch Activity"
-
-        highlights = []
-        for e in sorted(events, key=lambda x: x["created_at"]):
-            time_part = e["created_at"][11:16] if "T" in e["created_at"] else e["created_at"]
-            highlights.append(f"[{time_part}] {e.get('summary')}")
-
-        return {
-            "date": date_str,
-            "generated_at": now.isoformat(),
-            "headline": headline,
-            "total_events_today": len(events),
-            "deliveries_count": len(courier_events),
-            "visitors_count": len(visitor_events),
-            "animal_visits_count": len(animal_events),
-            "active_anomalies": lingering,
-            "highlights": highlights,
-            "verdict": "Attention required: Bring in lingering packages." if lingering else "All quiet and secure at the front door."
-        }
+        """Generate automated end-of-day summary digest via Chronicler Agent."""
+        return self.chronicler.generate_evening_digest()
 
     def answer_query(self, query: str) -> Dict[str, Any]:
-        """Natural-language question answering against episodic front-door memory."""
-        q_lower = query.strip().lower()
-        events = self.store.get_timeline(limit=50)
+        """Natural-language question answering against episodic memory via Chronicler Agent."""
+        return self.chronicler.answer_query(query)
 
-        # 1. Courier / Delivery questions
-        if any(w in q_lower for w in ["courier", "delivery", "fedex", "amazon", "ups", "package", "parcel", "box", "mail"]):
-            # Check for "still outside" or "lingering"
-            if any(w in q_lower for w in ["still outside", "left outside", "unattended", "lingering", "pending"]):
-                lingering = self.detect_lingering_packages(threshold_hours=1.0)
-                if lingering:
-                    l = lingering[0]
-                    return {
-                        "query": query,
-                        "found": True,
-                        "answer": f"Yes. 1 {l['carrier']} package ({l['description']}) has been outside on the {l['placement']} for {l['hours_lingering']} hours.",
-                        "matched_events": [e for e in events if e.get("parcel_detected")],
-                        "category": "package_status"
-                    }
-                else:
-                    return {
-                        "query": query,
-                        "found": True,
-                        "answer": "No packages are currently marked as lingering outside.",
-                        "matched_events": [],
-                        "category": "package_status"
-                    }
-
-            # General delivery lookup
-            courier_evs = [e for e in events if e.get("visitor_type") == "courier" or e.get("parcel_detected")]
-            if courier_evs:
-                latest = courier_evs[0]
-                ts = latest["created_at"][11:16] if "T" in latest["created_at"] else latest["created_at"]
-                carrier = latest.get("uniform_carrier", "courier")
-                action = latest.get("action", "delivered a package")
-                placement = latest.get("placement", "porch")
-                return {
-                    "query": query,
-                    "found": True,
-                    "answer": f"The courier ({carrier}) arrived at {ts} UTC and {action}. Placed at: {placement}.",
-                    "matched_events": courier_evs,
-                    "category": "delivery_history"
-                }
-            return {
-                "query": query,
-                "found": False,
-                "answer": "No courier deliveries have been recorded yet in today's episodic memory.",
-                "matched_events": [],
-                "category": "delivery_history"
-            }
-
-        # 2. Neighbor / Chime / Visitor questions
-        if any(w in q_lower for w in ["neighbor", "visitor", "someone", "who came", "chime", "doorbell", "rang", "ring"]):
-            visitor_evs = [e for e in events if e.get("visitor_type") in ["neighbor", "resident"] or e.get("event_type") == "ding"]
-            if visitor_evs:
-                latest = visitor_evs[0]
-                ts = latest["created_at"][11:16] if "T" in latest["created_at"] else latest["created_at"]
-                return {
-                    "query": query,
-                    "found": True,
-                    "answer": f"A visitor was detected at {ts} UTC. Details: {latest.get('summary')}",
-                    "matched_events": visitor_evs,
-                    "category": "visitor_history"
-                }
-            return {
-                "query": query,
-                "found": False,
-                "answer": "No visitor doorbell rings recorded in today's episodic timeline.",
-                "matched_events": [],
-                "category": "visitor_history"
-            }
-
-        # 3. Animal / Pet questions
-        if any(w in q_lower for w in ["animal", "pet", "dog", "cat", "creature", "raccoon"]):
-            animal_evs = [e for e in events if e.get("visitor_type") == "animal" or "animal" in e.get("event_type", "")]
-            if animal_evs:
-                latest = animal_evs[0]
-                ts = latest["created_at"][11:16] if "T" in latest["created_at"] else latest["created_at"]
-                return {
-                    "query": query,
-                    "found": True,
-                    "answer": f"Yes! An animal was spotted at {ts} UTC: {latest.get('summary')}",
-                    "matched_events": animal_evs,
-                    "category": "animal_detection"
-                }
-            return {
-                "query": query,
-                "found": False,
-                "answer": "No animal or pet visits detected on the front porch.",
-                "matched_events": [],
-                "category": "animal_detection"
-            }
-
-        # 4. Fallback: Search all event summaries
-        keyword_matches = [e for e in events if any(word in e.get("summary", "").lower() for word in q_lower.split() if len(word) > 3)]
-        if keyword_matches:
-            latest = keyword_matches[0]
-            ts = latest["created_at"][11:16] if "T" in latest["created_at"] else latest["created_at"]
-            return {
-                "query": query,
-                "found": True,
-                "answer": f"At {ts} UTC: {latest.get('summary')}",
-                "matched_events": keyword_matches,
-                "category": "general_memory"
-            }
-
+    def get_routines(self) -> Dict[str, Any]:
+        """Retrieve learned household routine profile via Memorian Agent."""
+        prof = self.memorian.get_or_build_profile()
         return {
-            "query": query,
-            "found": False,
-            "answer": f"I couldn't find any porch events matching '{query}'. Try asking 'When did the courier come?' or 'Are there any packages outside?'.",
-            "matched_events": [],
-            "category": "not_found"
+            "device_id": prof.device_id,
+            "quiet_hours": prof.quiet_hours,
+            "delivery_windows": prof.delivery_windows,
+            "recurring_visitors": prof.recurring_visitors,
+            "baseline_stats": prof.baseline_stats,
+            "last_consolidated": prof.last_consolidated
         }
+
+    def get_causal_narratives(self) -> List[Dict[str, Any]]:
+        """Retrieve active causal evidence chains via Sentinel Agent."""
+        analysis = self.sentinel.analyze_timeline()
+        return analysis.get("narratives", [])

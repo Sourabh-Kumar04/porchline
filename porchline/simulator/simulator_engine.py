@@ -191,6 +191,90 @@ class ScenarioCatalog:
                     "placement": "Porch floor near mat",
                     "urgency": "low"
                 }
+            },
+            {
+                "id": "theft_porch_pirate",
+                "title": "Porch Pirate Theft Incident",
+                "subtitle": "Unauthorized actor seizes lingering parcel and flees",
+                "event_type": "motion.human",
+                "device_id": "ring-cam-front-porch",
+                "time_offset_hours": -0.02,
+                "badge_color": "#dc2626",
+                "package_present": False,
+                "scenario_type": "theft_porch_pirate",
+                "simulated_visual_truth": {
+                    "visitor_type": "unknown",
+                    "uniform_carrier": "None",
+                    "action": "seized parcel from porch mat and fled rapidly (theft event)",
+                    "parcel_detected": False,
+                    "parcel_count": 0,
+                    "parcel_description": "None remaining on porch",
+                    "placement": "none",
+                    "urgency": "critical"
+                }
+            },
+            {
+                "id": "adversarial_package_swap",
+                "title": "Adversarial Package Swap",
+                "subtitle": "Stranger substitutes delivery with empty envelope",
+                "event_type": "motion.human",
+                "device_id": "ring-cam-front-porch",
+                "time_offset_hours": -0.01,
+                "badge_color": "#b91c1c",
+                "package_present": True,
+                "scenario_type": "package_swap",
+                "simulated_visual_truth": {
+                    "visitor_type": "unknown",
+                    "uniform_carrier": "None",
+                    "action": "swapped delivered parcel on mat with empty flyer envelope",
+                    "parcel_detected": True,
+                    "parcel_count": 1,
+                    "parcel_description": "Empty flyer envelope substituted in place of original parcel",
+                    "placement": "Porch floor near mat",
+                    "urgency": "critical"
+                }
+            },
+            {
+                "id": "adversarial_tailgating",
+                "title": "Doorway Tailgating Approach",
+                "subtitle": "Stranger follows directly behind resident into doorway",
+                "event_type": "motion.human",
+                "device_id": "ring-cam-front-porch",
+                "time_offset_hours": -0.03,
+                "badge_color": "#ef4444",
+                "package_present": False,
+                "scenario_type": "tailgating_entry",
+                "simulated_visual_truth": {
+                    "visitor_type": "unknown",
+                    "uniform_carrier": "None",
+                    "action": "tailgating detected: stranger followed resident into open door without ringing",
+                    "parcel_detected": False,
+                    "parcel_count": 0,
+                    "parcel_description": "",
+                    "placement": "none",
+                    "urgency": "critical"
+                }
+            },
+            {
+                "id": "benign_false_alarm_wind",
+                "title": "Benign False Alarm (Wind & Tree Shadow)",
+                "subtitle": "Foliage swaying in wind triggers motion; package intact",
+                "event_type": "motion.human",
+                "device_id": "ring-cam-front-porch",
+                "time_offset_hours": -0.04,
+                "badge_color": "#10b981",
+                "package_present": True,
+                "scenario_type": "benign_false_alarm",
+                "simulated_visual_truth": {
+                    "visitor_type": "resident",
+                    "uniform_carrier": "None",
+                    "action": "wind motion swaying porch foliage; package undisturbed on welcome mat",
+                    "parcel_detected": True,
+                    "parcel_count": 1,
+                    "parcel_description": "Amazon box remains untouched in original position",
+                    "placement": "Left side of welcome mat",
+                    "urgency": "none"
+                }
             }
         ]
         return scenarios
