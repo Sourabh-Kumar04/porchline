@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Porchline - Front-Door Episodic Memory Agent
+  Ring Webhooks -> AWS Bedrock Multimodal VLM -> Amazon DynamoDB
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.12
+    Environment:
+      Variables:
+        PORCHLINE_TABLE_NAME: !Ref EpisodicEventsTable
+        RING_WEBHOOK_SECRET: !Ref RingWebhookSecretParam
+
+Parameters:
+  RingWebhookSecretParam:
+    Type: String
+    NoEcho: true
+    Default: 'porchline_ring_webhook_secret_2026_hackathon'
+    Description: Shared secret for HMAC-SHA256 Ring webhook signature verification
+
+Resources:
+  # DynamoDB Single-Table for Episodic Timeline
+  EpisodicEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: PorchlineEpisodicEvents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # Lambda Ingestion & Query Function
+  PorchlineApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: porchline.lambda_handler.lambda_handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EpisodicEventsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
+      Events:
+        WebhookApi:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint URL for Porchline"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  DynamoDBTable:
+    Description: "Episodic Events Table Name"
+    Value: !Ref EpisodicEventsTable
