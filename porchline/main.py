@@ -31,12 +31,47 @@ app = FastAPI(
     version="1.0.0"
 )
 
+def is_production_environment() -> bool:
+    """Determine if running in an environment resembling production or staging."""
+    env = (
+        os.environ.get("PORCHLINE_ENV")
+        or os.environ.get("ENVIRONMENT")
+        or os.environ.get("ENV")
+        or os.environ.get("STAGE")
+        or ""
+    ).strip().lower()
+    if env in ("production", "prod", "staging", "stage"):
+        return True
+    if bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME")) or bool(os.environ.get("AWS_EXECUTION_ENV")):
+        return True
+    return False
+
+def get_ring_webhook_secret() -> str:
+    """Retrieve Ring webhook secret, enforcing fail-fast security in production."""
+    secret = os.environ.get("RING_WEBHOOK_SECRET")
+    if is_production_environment():
+        if not secret or secret == DEFAULT_RING_SECRET:
+            raise RuntimeError(
+                "CRITICAL SECURITY CONFIGURATION ERROR: The default webhook secret "
+                f"('{DEFAULT_RING_SECRET}') cannot be used in a production or staging environment. "
+                "You must supply a secure secret via the RING_WEBHOOK_SECRET environment variable."
+            )
+        return secret
+
+    if not secret:
+        logger.warning(
+            "Using default mock webhook secret in local development mode. "
+            "Set RING_WEBHOOK_SECRET for production environments."
+        )
+        return DEFAULT_RING_SECRET
+    return secret
+
 # Core singletons
-RING_SECRET = os.environ.get("RING_WEBHOOK_SECRET", DEFAULT_RING_SECRET)
+RING_SECRET = get_ring_webhook_secret()
 verifier = WebhookVerifier(RING_SECRET)
-deduplicator = EventDeduplicator(ttl_seconds=3600)
-bedrock_proc = BedrockVisionProcessor()
 dynamo_store = DynamoDBEpisodicStore()
+deduplicator = EventDeduplicator(ttl_seconds=3600, dynamo_store=dynamo_store)
+bedrock_proc = BedrockVisionProcessor()
 memory_agent = PorchlineMemoryAgent(dynamo_store)
 
 # Helper for initial seed scenario loading if empty
@@ -239,11 +274,50 @@ async def get_anomalies():
     return {"anomalies": anomalies}
 
 
+@app.get("/api/status")
+async def get_system_status():
+    """Return backend operational status and live/mock integration modes."""
+    return {
+        "bedrock_mode": "LIVE" if getattr(bedrock_proc, "is_live", False) else "MOCK",
+        "bedrock_live": getattr(bedrock_proc, "is_live", False),
+        "dynamodb_mode": "LIVE" if getattr(dynamo_store, "is_live", False) else "MOCK",
+        "dynamodb_live": getattr(dynamo_store, "is_live", False),
+        "simulator_active": True,
+    }
+
 # ----------------- DEMO WEB CONSOLE -----------------
 @app.get("/", response_class=HTMLResponse)
 async def web_console():
     """Clean front-end demo console for the Hackathon."""
     seed_default_memory_if_empty()
+    is_live = getattr(bedrock_proc, "is_live", False)
+    if is_live:
+        badge_html = """<div id="bedrock-mode-badge" class="flex items-center space-x-1.5 text-xs bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 px-3 py-1.5 rounded-lg shadow-sm" title="Live Amazon Bedrock Claude 3.5 Sonnet Integration">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span class="font-bold tracking-wide">LIVE BEDROCK</span>
+                    <span class="text-[10px] text-emerald-400/80 font-mono hidden sm:inline">(Claude 3.5)</span>
+                </div>"""
+        stack_badge_html = """<div class="p-2 bg-slate-950 rounded border border-emerald-800/60">
+                        <div class="flex items-center justify-between">
+                            <span class="text-white font-medium block">Amazon Bedrock</span>
+                            <span class="px-1.5 py-0.5 text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded">LIVE</span>
+                        </div>
+                        <span class="text-slate-400">Claude 3.5 Sonnet Active</span>
+                    </div>"""
+    else:
+        badge_html = """<div id="bedrock-mode-badge" class="flex items-center space-x-1.5 text-xs bg-amber-950/60 border border-amber-500/50 text-amber-300 px-3 py-1.5 rounded-lg shadow-sm" title="Running in simulated mock mode without AWS credentials">
+                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                    <span class="font-bold tracking-wide">MOCK MODE</span>
+                    <span class="text-[10px] text-amber-400/80 font-mono hidden sm:inline">(Zero AWS Creds)</span>
+                </div>"""
+        stack_badge_html = """<div class="p-2 bg-slate-950 rounded border border-amber-800/60">
+                        <div class="flex items-center justify-between">
+                            <span class="text-white font-medium block">Amazon Bedrock</span>
+                            <span class="px-1.5 py-0.5 text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40 rounded">MOCK</span>
+                        </div>
+                        <span class="text-slate-400">Zero AWS Creds Mock Mode</span>
+                    </div>"""
+
     html_content = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -277,6 +351,7 @@ async def web_console():
                 </div>
             </div>
             <div class="flex items-center space-x-3">
+                __BEDROCK_BADGE__
                 <button onclick="resetTimeline()" class="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition">
                     <i class="fa-solid fa-rotate-left mr-1"></i> Reset Demo Data
                 </button>
@@ -349,10 +424,7 @@ async def web_console():
                     <span>AWS Builder Mini Stack</span>
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-[11px]">
-                    <div class="p-2 bg-slate-950 rounded border border-slate-800">
-                        <span class="text-white font-medium block">Amazon Bedrock</span>
-                        <span class="text-slate-400">Multimodal VLM Frame Reasoner</span>
-                    </div>
+                    __BEDROCK_STACK_BADGE__
                     <div class="p-2 bg-slate-950 rounded border border-slate-800">
                         <span class="text-white font-medium block">AWS DynamoDB</span>
                         <span class="text-slate-400">Episodic Timeline Single-Table</span>
@@ -627,4 +699,9 @@ async def web_console():
 </body>
 </html>
 """
-    return HTMLResponse(content=html_content)
+    rendered_html = (
+        html_content
+        .replace("__BEDROCK_BADGE__", badge_html)
+        .replace("__BEDROCK_STACK_BADGE__", stack_badge_html)
+    )
+    return HTMLResponse(content=rendered_html)

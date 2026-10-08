@@ -32,15 +32,26 @@ class WebhookVerifier:
 
         if hmac.compare_digest(computed.lower(), clean_sig.lower()):
             return True, "Valid signature"
-        return False, f"Signature mismatch (computed {computed[:8]}... vs provided {clean_sig[:8]}...)"
+        return False, "Signature mismatch"
 
 class EventDeduplicator:
-    """In-memory deduplication cache with TTL."""
-    def __init__(self, ttl_seconds: int = 3600):
+    """Deduplication handler supporting DynamoDB conditional writes for multi-instance Lambdas
+    with in-memory fallback for local development and fast testing."""
+    def __init__(self, ttl_seconds: int = 3600, dynamo_store: Optional[Any] = None):
         self.ttl_seconds = ttl_seconds
+        self.dynamo_store = dynamo_store
         self.seen: Dict[str, float] = {}
 
     def is_duplicate(self, request_id: str) -> bool:
+        if not request_id:
+            return False
+
+        if self.dynamo_store and getattr(self.dynamo_store, "is_live", False) and getattr(self.dynamo_store, "table", None):
+            return self._is_duplicate_dynamodb(request_id)
+
+        return self._is_duplicate_local(request_id)
+
+    def _is_duplicate_local(self, request_id: str) -> bool:
         now = datetime.now(timezone.utc).timestamp()
         # Clean expired
         expired = [k for k, v in self.seen.items() if now - v > self.ttl_seconds]
@@ -51,3 +62,25 @@ class EventDeduplicator:
             return True
         self.seen[request_id] = now
         return False
+
+    def _is_duplicate_dynamodb(self, request_id: str) -> bool:
+        now = datetime.now(timezone.utc).timestamp()
+        try:
+            from botocore.exceptions import ClientError
+            # Atomic conditional put: succeed only if PK does not exist
+            self.dynamo_store.table.put_item(
+                Item={
+                    "PK": f"DEDUP#{request_id}",
+                    "SK": f"DEDUP#{request_id}",
+                    "request_id": request_id,
+                    "ttl": int(now + self.ttl_seconds),
+                },
+                ConditionExpression="attribute_not_exists(PK)"
+            )
+            return False
+        except Exception as e:
+            from botocore.exceptions import ClientError
+            if isinstance(e, ClientError) and e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                return True
+            logger.warning(f"DynamoDB conditional dedup check failed ({e}), falling back to local memory.")
+            return self._is_duplicate_local(request_id)

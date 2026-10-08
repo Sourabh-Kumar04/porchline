@@ -37,6 +37,24 @@ def test_event_deduplication():
     # Second check should return True (it's a duplicate)
     assert dedup.is_duplicate(req_id) is True
 
+def test_event_deduplication_dynamo_conditional_put():
+    from botocore.exceptions import ClientError
+    class MockDynamoTable:
+        def __init__(self):
+            self.items = set()
+        def put_item(self, Item, ConditionExpression):
+            if Item["PK"] in self.items:
+                raise ClientError({"Error": {"Code": "ConditionalCheckFailedException"}}, "PutItem")
+            self.items.add(Item["PK"])
+
+    class MockStore:
+        is_live = True
+        table = MockDynamoTable()
+
+    dedup = EventDeduplicator(ttl_seconds=3600, dynamo_store=MockStore())
+    assert dedup.is_duplicate("req_atomic_1") is False
+    assert dedup.is_duplicate("req_atomic_1") is True
+
 def test_webhook_ingest_valid_and_fast_ack():
     # Reset store
     dynamo_store.clear()
@@ -140,3 +158,13 @@ def test_web_console_html_endpoint():
     assert res.status_code == 200
     assert "Porchline" in res.text
     assert "Ring Webhook Simulator" in res.text
+    # Must have a visible MOCK/LIVE badge in the web console UI
+    assert "MOCK MODE" in res.text or "LIVE BEDROCK" in res.text
+
+def test_system_status_endpoint():
+    res = client.get("/api/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert "bedrock_mode" in data
+    assert data["bedrock_mode"] in ("MOCK", "LIVE")
+    assert "dynamodb_mode" in data

@@ -44,6 +44,10 @@ def test_hostile_signature_prefix_tampering():
         "X-Signature": flipped
     })
     assert res.status_code == 401
+    detail = res.json()["detail"]
+    assert "computed" not in detail
+    assert valid_sig[:8] not in detail
+    assert "Signature mismatch" in detail
 
 def test_hostile_empty_body():
     valid_sig = compute_ring_signature(b"", RING_SECRET)
@@ -85,3 +89,31 @@ def test_hostile_unknown_scenario_emit_404():
     res = client.post("/api/simulator/emit", json={"scenario_id": "non_existent_fake_scenario"})
     assert res.status_code == 404
     assert "Scenario ID not found" in res.json()["detail"]
+
+def test_hostile_production_default_secret_fail_fast(monkeypatch):
+    from porchline.main import get_ring_webhook_secret, DEFAULT_RING_SECRET
+    monkeypatch.setenv("PORCHLINE_ENV", "production")
+    monkeypatch.delenv("RING_WEBHOOK_SECRET", raising=False)
+    with pytest.raises(RuntimeError) as exc_info:
+        get_ring_webhook_secret()
+    assert "default webhook secret" in str(exc_info.value).lower()
+
+    # Even if explicitly set to the default hardcoded secret in production, it must fail fast
+    monkeypatch.setenv("RING_WEBHOOK_SECRET", DEFAULT_RING_SECRET)
+    with pytest.raises(RuntimeError) as exc_info:
+        get_ring_webhook_secret()
+    assert "default webhook secret" in str(exc_info.value).lower()
+
+def test_hostile_production_with_valid_override_secret(monkeypatch):
+    from porchline.main import get_ring_webhook_secret
+    monkeypatch.setenv("PORCHLINE_ENV", "production")
+    monkeypatch.setenv("RING_WEBHOOK_SECRET", "custom_prod_secret_987654321")
+    assert get_ring_webhook_secret() == "custom_prod_secret_987654321"
+
+def test_hostile_lambda_environment_secret_fail_fast(monkeypatch):
+    from porchline.main import get_ring_webhook_secret
+    monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "PorchlineApiFunction")
+    monkeypatch.delenv("RING_WEBHOOK_SECRET", raising=False)
+    with pytest.raises(RuntimeError) as exc_info:
+        get_ring_webhook_secret()
+    assert "default webhook secret" in str(exc_info.value).lower()

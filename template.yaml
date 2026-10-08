@@ -11,6 +11,7 @@ Globals:
     Runtime: python3.12
     Environment:
       Variables:
+        PORCHLINE_ENV: production
         PORCHLINE_TABLE_NAME: !Ref EpisodicEventsTable
         RING_WEBHOOK_SECRET: !Ref RingWebhookSecretParam
 
@@ -18,8 +19,7 @@ Parameters:
   RingWebhookSecretParam:
     Type: String
     NoEcho: true
-    Default: 'porchline_ring_webhook_secret_2026_hackathon'
-    Description: Shared secret for HMAC-SHA256 Ring webhook signature verification
+    Description: Shared secret for HMAC-SHA256 Ring webhook signature verification (must be supplied for production deployment)
 
 Resources:
   # DynamoDB Single-Table for Episodic Timeline

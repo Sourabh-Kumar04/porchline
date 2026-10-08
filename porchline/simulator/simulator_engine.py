@@ -21,9 +21,15 @@ from porchline.simulator.frame_generator import generate_scene_image, get_base64
 
 DEFAULT_RING_SECRET = "porchline_ring_webhook_secret_2026_hackathon"
 
-def compute_ring_signature(payload_bytes: bytes, secret: str = DEFAULT_RING_SECRET) -> str:
+def get_default_secret() -> str:
+    """Return configured secret from RING_WEBHOOK_SECRET env var, falling back to local dev secret."""
+    import os
+    return os.environ.get("RING_WEBHOOK_SECRET", DEFAULT_RING_SECRET)
+
+def compute_ring_signature(payload_bytes: bytes, secret: Optional[str] = None) -> str:
     """Compute Ring Partner API HMAC-SHA256 signature (hex format)."""
-    return hmac.new(secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
+    resolved_secret = secret if secret is not None else get_default_secret()
+    return hmac.new(resolved_secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
 
 def create_ring_event_payload(
     event_type: str,
@@ -192,9 +198,9 @@ class ScenarioCatalog:
 class WebhookSimulatorClient:
     """Simulator client to fire Ring webhook events to an ingestion target."""
 
-    def __init__(self, target_url: str, secret: str = DEFAULT_RING_SECRET):
+    def __init__(self, target_url: str, secret: Optional[str] = None):
         self.target_url = target_url
-        self.secret = secret
+        self.secret = secret if secret is not None else get_default_secret()
 
     def emit_scenario(self, scenario: Dict[str, Any]) -> Dict[str, Any]:
         """Emit a scenario event to the ingestion webhook URL."""

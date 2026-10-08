@@ -1,7 +1,7 @@
 # Porchline Hostile QA Report & Rubric Verification
 **Project:** Porchline (Front-Door Episodic Memory Agent)  
 **Track:** Ring Track & AWS Builder Mini-Challenge  
-**QA Status:** ✅ ALL AUDITS & TESTS PASSED (15/15 GREEN)  
+**QA Status:** ✅ ALL AUDITS & TESTS PASSED (20/20 GREEN)  
 **Date of Audit:** October 8, 2026  
 
 ---
@@ -9,15 +9,21 @@
 ## 1. Executive Summary
 A comprehensive hostile Quality Assurance (QA) pass was executed against Porchline. The objective of this pass was to actively attempt to break the system via adversarial payloads, simulate extreme edge cases, verify strict compliance with Ring Partner API specifications, and ensure all requirements of the hackathon rubric are fulfilled.
 
+In addition, a 4-point hostile QA remediation pass was executed with 100% resolution:
+1. **HIGH: Default Secret Public Commit Remediation:** Removed hardcoded defaults from `template.yaml`, enforced fail-fast startup checks when running in production or AWS Lambda environments, and supported `RING_WEBHOOK_SECRET` override.
+2. **MEDIUM: Timing Oracle Elimination:** Replaced hex slice leaks in signature validation with a generic `"Signature mismatch"` error response.
+3. **MEDIUM: Multi-Instance Lambda Idempotency:** Implemented atomic DynamoDB conditional write deduplication on `request_id` (`attribute_not_exists(PK)`) with documented known limitations for local dev mode.
+4. **MEDIUM: Bedrock Mock/Live Transparency:** Added dynamic, visible MOCK/LIVE badges to the web console header and architecture cards, and disclosed mock vs live modes in `README.md`.
+
 ---
 
 ## 2. Test Execution & Coverage Summary
 
 | Test Category | Suite File | Total Tests | Status | Key Focus Areas |
 | :--- | :--- | :---: | :---: | :--- |
-| **Core Integration** | `tests/test_porchline_core.py` | 8 | ✅ PASSED | HMAC signature validation, request deduplication, fast ACK response, preset scenario emissions, Bedrock memory parsing, NL Q&A, and evening digest generation. |
-| **Hostile / Break-It Pass** | `tests/test_porchline_hostile.py` | 7 | ✅ PASSED | Malformed JSON injection, missing headers, signature byte tampering, prompt injection defense, SQL-injection syntax resilience, empty memory edge cases, and 404 boundaries. |
-| **Total Automated Tests** | — | **15** | ✅ **100% PASSED** | Execution time: ~2.9s. Zero regressions. |
+| **Core Integration** | `tests/test_porchline_core.py` | 10 | ✅ PASSED | HMAC signature validation, request deduplication (in-memory & DynamoDB conditional write), fast ACK response, preset scenario emissions, Bedrock memory parsing, NL Q&A, UI MOCK/LIVE badge, system status, and evening digest generation. |
+| **Hostile / Break-It Pass** | `tests/test_porchline_hostile.py` | 10 | ✅ PASSED | Malformed JSON injection, missing headers, signature byte tampering with zero-oracle leak verification, production secret fail-fast validation, Lambda environment secret enforcement, prompt injection defense, SQL-injection resilience, empty memory edge cases, and 404 boundaries. |
+| **Total Automated Tests** | — | **20** | ✅ **100% PASSED** | Zero regressions. Full coverage of core and hostile edge cases. |
 
 ---
 
